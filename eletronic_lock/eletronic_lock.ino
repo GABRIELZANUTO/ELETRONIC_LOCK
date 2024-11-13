@@ -6,11 +6,10 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-SSD1306Wire display(0x3C, 32, 13); // Endereço I2C e pinos SDA (32) e SCL (13) para ESP32
+SSD1306Wire display(0x3C, 32, 13); 
 
-// Configurações do Servo
 Servo lockServo;
-const int servoPin = 23;
+const int servoPin = 14;
 
 // Configurações do PWM para controle de trava
 const int lockPin = 25;
@@ -21,10 +20,9 @@ const int pwmFreq = 8000;
 const int pwmResolution = 8;
 const int maxDutyCycle = 255;
 
-// Configurações do EEPROM
 const int EEPROM_SIZE = 64;
 
-// Gerenciamento de Estado
+
 enum LockState {
   LOCKED,
   UNLOCKED,
@@ -34,13 +32,12 @@ enum LockState {
 };
 LockState currentState = LOCKED;
 
-// Variáveis de Temporização
+
 unsigned long previousMillis = 0;
 unsigned long errorDisplayMillis = 0;
 unsigned long unlockMillis = 0;
 unsigned long lockDuration = 10000;
 
-// Configurações do Keypad
 const byte ROWS = 4;
 const byte COLS = 4;
 char keys[ROWS][COLS] = {
@@ -50,16 +47,15 @@ char keys[ROWS][COLS] = {
   {'A','B','C','D'}
 };
 
-byte rowPins[COLS] = {21, 22, 23, 19};  // Adaptado para o ESP32
-byte colPins[ROWS] = {18, 5, 17, 16};   // Adaptado para o ESP32
- 
+byte rowPins[COLS] = {21, 22, 23, 19};  
+byte colPins[ROWS] = {18, 5, 17, 16};  
+
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 String inputPassword = "";
 String savedPassword = "1234";
 String newPassword = "";
 
-// Funções de controle
 void displayStatus(const char* status);
 void openLock();
 void closeLock();
@@ -76,15 +72,14 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   loadState();
 
-  // Inicialização do display OLED
+
   display.init();
   display.clear();
   display.display();
 
-  // Inicialização do Servo
+ 
   lockServo.attach(servoPin);
 
-  // Inicialização dos canais PWM
   ledcSetup(pwmChannelLock, pwmFreq, pwmResolution);
   ledcSetup(pwmChannelUnlock, pwmFreq, pwmResolution);
   ledcAttachPin(lockPin, pwmChannelLock);
@@ -95,20 +90,21 @@ void setup() {
 
   if (currentState == LOCKED) {
     closeLock();
-    displayStatus("Locked");
+    displayStatus("Trancado");
   } else if (currentState == UNLOCKED) {
     openLock();
-    displayStatus("Unlocked");
+    displayStatus("Destrancado");
     unlockMillis = millis();
   } else {
     currentState = LOCKED;
     closeLock();
-    displayStatus("Locked");
+    displayStatus("Trancado");
   }
 }
 
 void loop() {
   unsigned long currentMillis = millis();
+  Serial.println(savedPassword);
 
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
@@ -128,7 +124,7 @@ void loop() {
         currentState = LOCKED;
         saveState();
         closeLock();
-        displayStatus("Locked");
+        displayStatus("Trancado");
       }
       break;
     case ERROR_STATE:
@@ -140,14 +136,13 @@ void loop() {
 }
 
 void handleKeypadInput(char key) {
-  Serial.println(key);  // Exibe no monitor serial a tecla pressionada
-
+  Serial.println(key);  
   switch (currentState) {
     case LOCKED:
       if (key == '*') {
         inputPassword = "";
         currentState = WAITING_FOR_PASSWORD;
-        displayStatus("Enter PWD:");
+        displayStatus("Digite a Senha:");
       }
       break;
 
@@ -157,18 +152,14 @@ void handleKeypadInput(char key) {
           currentState = UNLOCKED;
           saveState();
           openLock();
-          displayStatus("Unlocked");
+          displayStatus("Destrancado");
           unlockMillis = millis();
         } else {
           currentState = ERROR_STATE;
           errorDisplayMillis = millis();
-          displayStatus("Incorrect!");
+          displayStatus("Senha Incorreta!");
         }
         inputPassword = "";
-      } else if (key == 'A') {
-        currentState = CHANGE_PASSWORD;
-        newPassword = "";
-        displayStatus("New PWD:");
       } else {
         inputPassword += key;
         displayStatus(inputPassword.c_str());
@@ -182,11 +173,11 @@ void handleKeypadInput(char key) {
           EEPROM.writeString(1, savedPassword);
           EEPROM.commit();
           currentState = LOCKED;
-          displayStatus("PWD Changed");
+          displayStatus("Senha Alterada");
         } else {
           currentState = ERROR_STATE;
           errorDisplayMillis = millis();
-          displayStatus("PWD Error");
+          displayStatus("Erro na Senha");
         }
         newPassword = "";
       } else {
@@ -200,7 +191,7 @@ void handleKeypadInput(char key) {
         currentState = LOCKED;
         saveState();
         closeLock();
-        displayStatus("Locked");
+        displayStatus("Trancado");
       }
       break;
   }
@@ -267,10 +258,9 @@ void processSerialCommand(String command) {
       savedPassword = newPass;
       EEPROM.writeString(1, savedPassword);
       EEPROM.commit();
-      Serial.println("Password updated.");
-     
+      Serial.println("Senha atualizada.");
     } else {
-      Serial.println("Password too short.");
+      Serial.println("Senha muito curta.");
     }
   } else if (command.startsWith("SET_LOCK_TIME ")) {
     unsigned long timeInSeconds = command.substring(14).toInt();
@@ -278,18 +268,18 @@ void processSerialCommand(String command) {
       lockDuration = timeInSeconds * 1000;
       EEPROM.writeULong(50, lockDuration);
       EEPROM.commit();
-      Serial.println("Lock duration updated.");
+      Serial.println("Duração da trava atualizada.");
     } else {
-      Serial.println("Invalid lock time.");
+      Serial.println("Tempo de trava inválido.");
     }
   } else if (command == "STATUS") {
-    Serial.println("Status: " + String(currentState == LOCKED ? "Locked" : "Unlocked"));
+    Serial.println("Status: " + String(currentState == LOCKED ? "Trancado" : "Destrancado"));
   } else {
-    Serial.println("Unknown command.");
+    Serial.println("Comando desconhecido.");
   }
 }
 
 void resetErrorState() {
   currentState = LOCKED;
-  displayStatus("Locked");
+  displayStatus("Trancado");
 }
