@@ -11,7 +11,7 @@ SSD1306Wire display(0x3C, 32, 13);
 Servo lockServo;
 const int servoPin = 14;
 
-// Configurações do PWM para controle de trava
+
 const int lockPin = 25;
 const int unlockPin = 26;
 const int pwmChannelLock = 0;
@@ -41,10 +41,10 @@ unsigned long lockDuration = 10000;
 const byte ROWS = 4;
 const byte COLS = 4;
 char keys[ROWS][COLS] = {
-  {'1','4','7','*'},
-  {'2','5','8','0'},
-  {'3','6','9','#'},
-  {'A','B','C','D'}
+  {'1','3','2','A'},
+  {'4','6','5','B'},
+  {'7','9','8','C'},
+  {'*','#','0','D'}
 };
 
 byte rowPins[COLS] = {21, 22, 23, 19};  
@@ -104,7 +104,7 @@ void setup() {
 
 void loop() {
   unsigned long currentMillis = millis();
-  Serial.println(savedPassword);
+
 
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
@@ -156,33 +156,23 @@ void handleKeypadInput(char key) {
           unlockMillis = millis();
         } else {
           currentState = ERROR_STATE;
-          errorDisplayMillis = millis();
+          errorDisplayMillis = millis();  
           displayStatus("Senha Incorreta!");
         }
-        inputPassword = "";
+        inputPassword = ""; 
       } else {
         inputPassword += key;
-        displayStatus(inputPassword.c_str());
+        String maskedPassword = "";
+        for (unsigned int i = 0; i < inputPassword.length(); i++) {
+          maskedPassword += '*';
+        }
+        displayStatus(maskedPassword.c_str());
       }
       break;
 
-    case CHANGE_PASSWORD:
-      if (key == '#') {
-        if (newPassword.length() >= 4) {
-          savedPassword = newPassword;
-          EEPROM.writeString(1, savedPassword);
-          EEPROM.commit();
-          currentState = LOCKED;
-          displayStatus("Senha Alterada");
-        } else {
-          currentState = ERROR_STATE;
-          errorDisplayMillis = millis();
-          displayStatus("Erro na Senha");
-        }
-        newPassword = "";
-      } else {
-        newPassword += key;
-        displayStatus(newPassword.c_str());
+    case ERROR_STATE:
+      if (millis() - errorDisplayMillis >= 3000) {
+        resetErrorState();
       }
       break;
 
@@ -199,7 +189,11 @@ void handleKeypadInput(char key) {
 
 void displayStatus(const char* status) {
   display.clear();
-  display.drawString(0, 0, status);
+  display.setFont(ArialMT_Plain_16); 
+  int16_t textWidth = display.getStringWidth(status);
+  int16_t x = (SCREEN_WIDTH - textWidth) / 2;
+  int16_t y = (SCREEN_HEIGHT - 16) / 2; 
+  display.drawString(x, y, status);
   display.display();
 }
 
