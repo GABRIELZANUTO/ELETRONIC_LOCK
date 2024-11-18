@@ -11,32 +11,20 @@ SSD1306Wire display(0x3C, 32, 13);
 Servo lockServo;
 const int servoPin = 14;
 
-
-const int lockPin = 25;
-const int unlockPin = 26;
-const int pwmChannelLock = 0;
-const int pwmChannelUnlock = 1;
-const int pwmFreq = 8000;
-const int pwmResolution = 8;
-const int maxDutyCycle = 255;
-
 const int EEPROM_SIZE = 64;
-
 
 enum LockState {
   LOCKED,
   UNLOCKED,
   WAITING_FOR_PASSWORD,
-  ERROR_STATE,
-  CHANGE_PASSWORD
+  ERROR_STATE
 };
 LockState currentState = LOCKED;
 
-
-unsigned long previousMillis = 0;
-unsigned long errorDisplayMillis = 0;
 unsigned long unlockMillis = 0;
-unsigned long lockDuration = 10000;
+unsigned long lockDuration = 5000;
+unsigned long displayDelayMillis = 0; 
+bool isDisplayLocked = false;
 
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -54,47 +42,27 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 String inputPassword = "";
 String savedPassword = "1234";
-String newPassword = "";
 
 void displayStatus(const char* status);
 void openLock();
 void closeLock();
 void saveState();
 void loadState();
-void processSerialCommand(String command);
-void softStartPWM(int pin, int channel);
 void handleKeypadInput(char key);
 void resetErrorState();
-void changePassword();
 
 void setup() {
   Serial.begin(115200);
   EEPROM.begin(EEPROM_SIZE);
   loadState();
 
-
   display.init();
   display.clear();
   display.display();
 
- 
-  lockServo.attach(servoPin);
-
-  ledcSetup(pwmChannelLock, pwmFreq, pwmResolution);
-  ledcSetup(pwmChannelUnlock, pwmFreq, pwmResolution);
-  ledcAttachPin(lockPin, pwmChannelLock);
-  ledcAttachPin(unlockPin, pwmChannelUnlock);
-
-  ledcWrite(pwmChannelLock, 0);
-  ledcWrite(pwmChannelUnlock, 0);
-
   if (currentState == LOCKED) {
     closeLock();
     displayStatus("Trancado");
-  } else if (currentState == UNLOCKED) {
-    openLock();
-    displayStatus("Destrancado");
-    unlockMillis = millis();
   } else {
     currentState = LOCKED;
     closeLock();
@@ -105,30 +73,30 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-
-  if (Serial.available()) {
-    String command = Serial.readStringUntil('\n');
-    processSerialCommand(command);
-  }
-
   char key = keypad.getKey();
   if (key) {
     handleKeypadInput(key);
   }
 
   switch (currentState) {
-    case LOCKED:
-      break;
     case UNLOCKED:
       if (currentMillis - unlockMillis >= lockDuration) {
-        currentState = LOCKED;
-        saveState();
-        closeLock();
-        displayStatus("Trancado");
+        closeLock(); 
+        displayDelayMillis = currentMillis; 
+        isDisplayLocked = true; 
+        currentState = LOCKED;  
       }
       break;
+
+    case LOCKED:
+      if (isDisplayLocked && currentMillis - displayDelayMillis >= 3000) { 
+        displayStatus("Trancado");
+        isDisplayLocked = false; 
+      }
+      break;
+
     case ERROR_STATE:
-      if (currentMillis - errorDisplayMillis >= 3000) {
+      if (currentMillis - unlockMillis >= 3000) { 
         resetErrorState();
       }
       break;
@@ -149,14 +117,13 @@ void handleKeypadInput(char key) {
     case WAITING_FOR_PASSWORD:
       if (key == '#') {
         if (inputPassword == savedPassword) {
-          currentState = UNLOCKED;
-          saveState();
           openLock();
           displayStatus("Destrancado");
           unlockMillis = millis();
+          currentState = UNLOCKED;
         } else {
           currentState = ERROR_STATE;
-          errorDisplayMillis = millis();  
+          unlockMillis = millis();  
           displayStatus("Senha Incorreta!");
         }
         inputPassword = ""; 
@@ -170,18 +137,11 @@ void handleKeypadInput(char key) {
       }
       break;
 
-    case ERROR_STATE:
-      if (millis() - errorDisplayMillis >= 3000) {
-        resetErrorState();
-      }
-      break;
-
     case UNLOCKED:
       if (key == '*') {
-        currentState = LOCKED;
-        saveState();
         closeLock();
         displayStatus("Trancado");
+        currentState = LOCKED;
       }
       break;
   }
@@ -198,37 +158,17 @@ void displayStatus(const char* status) {
 }
 
 void openLock() {
-  ledcWrite(pwmChannelLock, 0);
-  softStartPWM(unlockPin, pwmChannelUnlock);
-  lockServo.write(90);
+  lockServo.attach(servoPin);
+  lockServo.write(90);  
+  delay(1000);          
+  lockServo.detach();
 }
 
 void closeLock() {
-  ledcWrite(pwmChannelUnlock, 0);
-  softStartPWM(lockPin, pwmChannelLock);
-  lockServo.write(0);
-}
-
-void softStartPWM(int pin, int channel) {
-  for (int dutyCycle = 0; dutyCycle <= maxDutyCycle; dutyCycle++) {
-    ledcWrite(channel, dutyCycle);
-    delay(1);
-  }
-  unsigned long startMillis = millis();
-  while (millis() - startMillis < 1000) {
-    ledcWrite(channel, maxDutyCycle);
-    if (channel == pwmChannelLock) {
-      ledcWrite(pwmChannelUnlock, 0);
-    } else {
-      ledcWrite(pwmChannelLock, 0);
-    }
-  }
-  for (int dutyCycle = maxDutyCycle; dutyCycle >= 0; dutyCycle--) {
-    ledcWrite(channel, dutyCycle);
-    delay(1);
-  }
-  ledcWrite(pwmChannelLock, 0);
-  ledcWrite(pwmChannelUnlock, 0);
+  lockServo.attach(servoPin);
+  lockServo.write(0);  // Fecha o servo
+  delay(1000);        
+  lockServo.detach();
 }
 
 void saveState() {
@@ -241,35 +181,6 @@ void loadState() {
   savedPassword = EEPROM.readString(1);
   if (savedPassword == "") {
     savedPassword = "1234";
-  }
-}
-
-void processSerialCommand(String command) {
-  command.trim();
-  if (command.startsWith("SET_PASSWORD ")) {
-    String newPass = command.substring(13);
-    if (newPass.length() >= 4) {
-      savedPassword = newPass;
-      EEPROM.writeString(1, savedPassword);
-      EEPROM.commit();
-      Serial.println("Senha atualizada.");
-    } else {
-      Serial.println("Senha muito curta.");
-    }
-  } else if (command.startsWith("SET_LOCK_TIME ")) {
-    unsigned long timeInSeconds = command.substring(14).toInt();
-    if (timeInSeconds > 0) {
-      lockDuration = timeInSeconds * 1000;
-      EEPROM.writeULong(50, lockDuration);
-      EEPROM.commit();
-      Serial.println("Duração da trava atualizada.");
-    } else {
-      Serial.println("Tempo de trava inválido.");
-    }
-  } else if (command == "STATUS") {
-    Serial.println("Status: " + String(currentState == LOCKED ? "Trancado" : "Destrancado"));
-  } else {
-    Serial.println("Comando desconhecido.");
   }
 }
 
